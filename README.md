@@ -1,2 +1,2 @@
-# MAC_BOT
-The Frontend of MAC BOT written in Typescript.
+# MAC BOT
+The BACKEND of MAC BOT written in FASTAPI.
