@@ -30,8 +30,8 @@ def init_app():
 
     graphql_app = GraphQL(schema)
 
-    app.add_route("/graphql", graphql_app)
-    app.add_websocket_route("/graphql", graphql_app)
+    apps.add_route("/graphql", graphql_app)
+    apps.add_websocket_route("/graphql", graphql_app)
 
 
     

@@ -2,7 +2,7 @@ import strawberry
 from strawberry.types import Info
 from config import db
 # from strawberry.fastapi import GraphQLRouter
-from utils import create_access_token, decode_token, get_password_hashed, verify_password
+from utils import JWTManager, get_password_hashed, verify_password, IsAuthenticated
 from model.user import User
 from sqlalchemy.future import select
 
@@ -20,13 +20,13 @@ async def get_db():
 
 @strawberry.type
 class Query:
-    @strawberry.field
+    @strawberry.field(permission_classes=[IsAuthenticated])
     async def current_user(self, info: Info) -> UserType:
         async with db as session:
             token = info.context["request"].headers.get("Authorization")
             if not token:
                 return None
-            token_data = decode_token(token)
+            token_data = JWTManager.decode_token(token)
             user = await session.get(User, token_data["user_id"])
             if user:
                 return UserType(id=str(user.user_id), username=user.username)
@@ -56,5 +56,5 @@ class Mutation:
             user = user.scalars().first()
             if not user or not verify_password(password, user.hashed_password):
                 raise Exception("Invalid credentials")
-            token = create_access_token({"user_id": str(user.user_id)})
+            token = JWTManager.create_access_token({"user_id": str(user.user_id)})
             return token
