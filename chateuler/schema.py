@@ -5,32 +5,32 @@ from config import db
 from utils import JWTManager, get_password_hashed, verify_password, IsAuthenticated
 from model.user import User
 from sqlalchemy.future import select
-
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends, HTTPException
 
 @strawberry.type
 class UserType:
     user_id: str
     username: str
 
-
-async def get_db():
-    async with db as session:
+async def get_db() -> AsyncSession:
+    async with db() as session:
         yield session
-
 
 @strawberry.type
 class Query:
     @strawberry.field(permission_classes=[IsAuthenticated])
-    async def current_user(self, info: Info) -> UserType:
-        async with db as session:
-            token = info.context["request"].headers.get("Authorization")
-            if not token:
-                return None
-            token_data = JWTManager.decode_token(token)
-            user = await session.get(User, token_data["user_id"])
-            if user:
-                return UserType(id=str(user.user_id), username=user.username)
-            return None
+    async def current_user(self, info: Info, db: AsyncSession = Depends(get_db)) -> UserType:
+        token = info.context["request"].headers.get("Authorization")
+        if not token:
+            raise HTTPException(status_code=403, detail="Authorization token missing")
+        
+        token_data = JWTManager.decode_token(token)
+        user = await db.get(User, token_data["user_id"])
+        
+        if user:
+            return UserType(user_id=str(user.user_id), username=user.username)
+        return None
     
     @strawberry.field
     def home(self) -> str:
@@ -39,22 +39,27 @@ class Query:
 @strawberry.type
 class Mutation:
     @strawberry.mutation
-    async def create_user(self, username: str, password: str, info: Info) -> UserType:
-        async with db as session:
-            hashed_password = get_password_hashed(password)
-            db_user = User(username=username, hashed_password=hashed_password)
-            session.add(db_user)
-            await db.commit_rollback()
-            return UserType(id=str(db_user.user_id), username=db_user.username)
+    async def create_user(self, username: str, password: str, info: Info, db: AsyncSession = Depends(get_db)) -> UserType:
+        hashed_password = get_password_hashed(password)
+        db_user = User(username=username, hashed_password=hashed_password)
+        db.add(db_user)
+        
+        try:
+            await db.commit()
+            await db.refresh(db_user)
+        except Exception:
+            await db.rollback()
+            raise
+        
+        return UserType(user_id=str(db_user.user_id), username=db_user.username)
     
     @strawberry.mutation
-    async def login(self, username: str, password: str, info: Info) -> str:
-        async with db as session:
-            user = await session.execute(
-                select(User).where(User.username == username)
-            )
-            user = user.scalars().first()
-            if not user or not verify_password(password, user.hashed_password):
-                raise Exception("Invalid credentials")
-            token = JWTManager.create_access_token({"user_id": str(user.user_id)})
-            return token
+    async def login(self, username: str, password: str, info: Info, db: AsyncSession = Depends(get_db)) -> str:
+        result = await db.execute(select(User).where(User.username == username))
+        user = result.scalars().first()
+        
+        if not user or not verify_password(password, user.hashed_password):
+            raise HTTPException(status_code=403, detail="Invalid credentials")
+        
+        token = JWTManager.create_access_token({"user_id": str(user.user_id)})
+        return token
