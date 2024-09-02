@@ -30,7 +30,11 @@ class Query:
             user = await session.get(User, token_data["user_id"])
             if user:
                 return UserType(id=str(user.id), username=user.username)
-            return 
+            return None
+    
+    @strawberry.field
+    def home(self) -> str:
+        return "Welcome to CHATEULER!"
 
 @strawberry.type
 class Mutation:
